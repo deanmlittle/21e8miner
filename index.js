@@ -7,16 +7,11 @@ const Opcode = bsv.Opcode;
 const Transaction = bsv.Transaction;
 const BN = bsv.crypto.BN;
 
-
 const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID;
 const flags = bsv.Script.Interpreter.SCRIPT_VERIFY_MINIMALDATA | bsv.Script.Interpreter.SCRIPT_ENABLE_SIGHASH_FORKID | bsv.Script.Interpreter.SCRIPT_ENABLE_MAGNETIC_OPCODES | bsv.Script.Interpreter.SCRIPT_ENABLE_MONOLITH_OPCODES;
-  
+let attempt = 0;
 
-function is21e8Out(input) {
-  if (!input.output) {
-    return false;
-  }
-  const script = input.output.script;
+function is21e8Out(script) {
   return !!(
     script.chunks.length === 12 &&
     script.chunks[0].buf &&
@@ -38,28 +33,32 @@ function is21e8Out(input) {
 
 function sign(tx, target=''){
   const privKey = PrivateKey.fromRandom();
-  if(is21e8Out(tx.inputs[0])){
-    const signature = Transaction.sighash.sign(tx, privKey, sigtype, 0, tx.inputs[0].output.script, new bsv.crypto.BN(tx.inputs[0].output.satoshis), flags);
-    if(target!=''){
-      const sig256 = bsv.crypto.Hash.sha256(Buffer.concat([signature.toBuffer(), Buffer.from('41', 'hex')])).toString('hex');
-      if(!sig256.startsWith(target)){
-        console.log(chalk.red(sig256));
-        return(false);
-      } else {
-        console.log(chalk.green(sig256));
-      }
-    }
-    const unlockingScript = new bsv.Script({});
-    unlockingScript
-      .add(
-        Buffer.concat([
-          signature.toBuffer(),
-          Buffer.from([sigtype & 0xff])
-        ])
-      )
-      .add(privKey.toPublicKey().toBuffer());
-    tx.inputs[0].setScript(unlockingScript);
+  if(!is21e8Out(tx.inputs[0].output.script)){
+    throw("Not a valid 21e8 script");
   }
+  const signature = Transaction.sighash.sign(tx, privKey, sigtype, 0, tx.inputs[0].output.script, new bsv.crypto.BN(tx.inputs[0].output.satoshis), flags);
+  if(target!=''){
+    const sig256 = bsv.crypto.Hash.sha256(Buffer.concat([signature.toBuffer(), Buffer.from(sigtype.toString(16), 'hex')])).toString('hex');
+    if(!sig256.startsWith(target)){
+      process.stdout.clearLine();
+      process.stdout.cursorTo(0);
+      process.stdout.write(chalk.red(sig256));
+      return(false);
+    } else {
+      console.log();
+      console.log(chalk.green(sig256));
+    }
+  }
+  const unlockingScript = new bsv.Script({});
+  unlockingScript
+    .add(
+      Buffer.concat([
+        signature.toBuffer(),
+        Buffer.from([sigtype & 0xff])
+      ])
+    )
+    .add(privKey.toPublicKey().toBuffer());
+  tx.inputs[0].setScript(unlockingScript);
   console.log(chalk.green(`Signed ${target} with ${privKey.toString()}`));
   return tx;
 }
@@ -67,7 +66,6 @@ function sign(tx, target=''){
 
 const start = async() => {
   try {
-    prompt.start();
     const {txid} = await prompt.get(["txid"]);
     if(txid === 'exit') return; //let them exit
     let tx;
@@ -82,6 +80,7 @@ const start = async() => {
     if(!to.length){
       throw("No address found.");
     }
+    prompt.stop();
     console.log(chalk.green(`Mining TX: ${txid}`));
     console.log(chalk.green(`Pay to: ${to}`));
     mineId(tx, to);
@@ -92,7 +91,19 @@ const start = async() => {
 }
 
 const mineId = async(from, to) => {
-    const vout = from.vout[0];
+    let index = -1;
+    for(let i=0; i<from.vout.length; i++) {
+      if(is21e8Out(bsv.Script.fromHex(from.vout[i].scriptPubKey.hex))){
+        index = i;
+        break;
+      }
+    }
+    if(index<0){
+      console.log(chalk.red("No 21e8 outputs found"))
+      return;
+    }
+    attempt = 1;
+    const vout = from.vout[index];
     const value = vout.value*1e8;
     const targetScript = bsv.Script.fromHex(vout.scriptPubKey.hex);
     const target = targetScript.toASM().split(" ")[1].toString('hex');
@@ -113,7 +124,7 @@ const mineId = async(from, to) => {
 
     tx.addOutput(
       new Transaction.Output({
-        satoshis: value-150,
+        satoshis: value-218,
         script: bsv.Script.buildPublicKeyHashOut(to)
       })
     );
@@ -124,6 +135,19 @@ const mineId = async(from, to) => {
       newTX = sign(tx, target);
     }
     console.log(chalk.yellow(newTX.uncheckedSerialize()));
+    console.log("Publish? Y/N");
+    const {publish} = await prompt.get(["publish"]);
+    if(publish.toLowerCase()[0] == 'y'){
+      try {
+        const {data} = await axios.post('https://api.whatsonchain.com/v1/bsv/main/tx/raw', { txhex: newTX.uncheckedSerialize() });
+        console.log(data);
+        console.log(chalk.green('Published ' + Buffer.from(newTX._getHash()).reverse().toString('hex')));
+      } catch(e) {
+        console.log(chalk.red(JSON.stringify({error: e.response.data})));
+      }
+    } else {
+      return;
+    }
 }
 
 start();
