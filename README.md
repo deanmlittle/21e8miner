@@ -31,4 +31,6 @@ node index
 ### Get a payout address from your PayMail
 If you don't know how to get p2pkh addresses, use https://polynym.io
 
-If you don't know what 21e8 is, check the blockchain.
+### What is 21e8?
+
+Check the blockchain.
