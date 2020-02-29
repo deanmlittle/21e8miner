@@ -140,7 +140,6 @@ const mineId = async(from, to) => {
     if(publish.toLowerCase()[0] == 'y'){
       try {
         const {data} = await axios.post('https://api.whatsonchain.com/v1/bsv/main/tx/raw', { txhex: newTX.uncheckedSerialize() });
-        console.log(data);
         console.log(chalk.green('Published ' + Buffer.from(newTX._getHash()).reverse().toString('hex')));
       } catch(e) {
         console.log(chalk.red(JSON.stringify({error: e.response.data})));
