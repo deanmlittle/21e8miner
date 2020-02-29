@@ -9,7 +9,6 @@ const BN = bsv.crypto.BN;
 
 const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID;
 const flags = bsv.Script.Interpreter.SCRIPT_VERIFY_MINIMALDATA | bsv.Script.Interpreter.SCRIPT_ENABLE_SIGHASH_FORKID | bsv.Script.Interpreter.SCRIPT_ENABLE_MAGNETIC_OPCODES | bsv.Script.Interpreter.SCRIPT_ENABLE_MONOLITH_OPCODES;
-let attempt = 0;
 
 function is21e8Out(script) {
   return !!(
@@ -75,34 +74,39 @@ const start = async() => {
     } catch(e) {
       throw("TX not found.");
     }
-    const {to} = await prompt.get(["to"]);
+    let index = -1;
+    for(let i=0; i<tx.vout.length; i++) {
+      if(is21e8Out(bsv.Script.fromHex(tx.vout[i].scriptPubKey.hex))){
+        index = i;
+        break;
+      }
+    }
+    if(index<0){
+      throw("No 21e8 outputs found");
+    }
+    let {to} = await prompt.get(["to"]);
     if(txid === 'exit') return; //let them exit
     if(!to.length){
       throw("No address found.");
     }
-    prompt.stop();
-    console.log(chalk.green(`Mining TX: ${txid}`));
+    try {
+      to = bsv.Script.buildPublicKeyHashOut(to);
+    } catch(e){
+      throw("Invalid address");
+    }
+    console.log("Automatically publish when mined? Y/N");
+    let {publish} = await prompt.get(["publish"]);
+    publish = (publish.toLowerCase()[0] == 'y') ? true : false;
+    console.log(chalk.green(`Mining TX ${txid} output ${index}`));
     console.log(chalk.green(`Pay to: ${to}`));
-    mineId(tx, to);
+    mineId(tx, index, to, publish);
   } catch(e){
     console.log(chalk.red(e));
     start();
   }
 }
 
-const mineId = async(from, to) => {
-    let index = -1;
-    for(let i=0; i<from.vout.length; i++) {
-      if(is21e8Out(bsv.Script.fromHex(from.vout[i].scriptPubKey.hex))){
-        index = i;
-        break;
-      }
-    }
-    if(index<0){
-      console.log(chalk.red("No 21e8 outputs found"))
-      return;
-    }
-    attempt = 1;
+const mineId = async(from, index, to, publish) => {
     const vout = from.vout[index];
     const value = Math.floor(vout.value*1e8);
     const targetScript = bsv.Script.fromHex(vout.scriptPubKey.hex);
@@ -125,7 +129,7 @@ const mineId = async(from, to) => {
     tx.addOutput(
       new Transaction.Output({
         satoshis: value-218,
-        script: bsv.Script.buildPublicKeyHashOut(to)
+        script: to
       })
     );
 
@@ -135,9 +139,7 @@ const mineId = async(from, to) => {
       newTX = sign(tx, target);
     }
     console.log(chalk.yellow(newTX.uncheckedSerialize()));
-    console.log("Publish? Y/N");
-    const {publish} = await prompt.get(["publish"]);
-    if(publish.toLowerCase()[0] == 'y'){
+    if(!!publish){
       try {
         const {data} = await axios.post('https://api.whatsonchain.com/v1/bsv/main/tx/raw', { txhex: newTX.uncheckedSerialize() });
         console.log(chalk.green('Published ' + Buffer.from(newTX._getHash()).reverse().toString('hex')));
