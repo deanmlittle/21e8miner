@@ -117,7 +117,7 @@ const mineId = async(from, to) => {
           satoshis: value
         }),
         prevTxId: from.txid,
-        outputIndex: 0,
+        outputIndex: index,
         script: bsv.Script.empty()
       })
     );
