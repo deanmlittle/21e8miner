@@ -104,7 +104,7 @@ const mineId = async(from, to) => {
     }
     attempt = 1;
     const vout = from.vout[index];
-    const value = vout.value*1e8;
+    const value = Math.floor(vout.value*1e8);
     const targetScript = bsv.Script.fromHex(vout.scriptPubKey.hex);
     const target = targetScript.toASM().split(" ")[1].toString('hex');
 
