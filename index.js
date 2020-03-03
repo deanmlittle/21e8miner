@@ -88,13 +88,7 @@ const start = async() => {
     }
     let toAddress;
     if(config.payto){
-      try {
-        const polynym = await axios.get(`https://api.polynym.io/getAddress/${config.payto}`);
-        console.log(polynym.data.address);
-        toAddress = polynym.data.address;
-      } catch(e) {
-        throw("Address not found");
-      }
+      toAddress = config.payto;
     } else {
       let {to} = await prompt.get(["to"]);
       if(txid === 'exit') return; //let them exit
@@ -102,6 +96,13 @@ const start = async() => {
         throw("No address found.");
       }
       toAddress = to;
+    }
+    try {
+      const polynym = await axios.get(`https://api.polynym.io/getAddress/${toAddress}`);
+      console.log(polynym.data.address);
+      toAddress = polynym.data.address;
+    } catch(e) {
+      throw("Address not found");
     }
     try {
       toAddress = bsv.Script.buildPublicKeyHashOut(toAddress);
