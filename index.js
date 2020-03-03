@@ -2,10 +2,12 @@ const axios = require('axios');
 const bsv = require('bsv');
 const chalk = require('chalk');
 const prompt = require('prompt-async');
+const Message = require('bsv/message')
 const PrivateKey = bsv.PrivateKey;
 const Opcode = bsv.Opcode;
 const Transaction = bsv.Transaction;
 const BN = bsv.crypto.BN;
+const config = require('./config');
 
 const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID;
 const flags = bsv.Script.Interpreter.SCRIPT_VERIFY_MINIMALDATA | bsv.Script.Interpreter.SCRIPT_ENABLE_SIGHASH_FORKID | bsv.Script.Interpreter.SCRIPT_ENABLE_MAGNETIC_OPCODES | bsv.Script.Interpreter.SCRIPT_ENABLE_MONOLITH_OPCODES;
@@ -84,22 +86,31 @@ const start = async() => {
     if(index<0){
       throw("No 21e8 outputs found");
     }
-    let {to} = await prompt.get(["to"]);
-    if(txid === 'exit') return; //let them exit
-    if(!to.length){
-      throw("No address found.");
+    let toAddress;
+    if(config.payto){
+      try {
+        const polynym = await axios.get(`https://api.polynym.io/getAddress/${config.payto}`);
+        console.log(polynym.data.address);
+        toAddress = polynym.data.address;
+      } catch(e) {
+        throw("Address not found");
+      }
+    } else {
+      let {to} = await prompt.get(["to"]);
+      if(txid === 'exit') return; //let them exit
+      if(!to.length){
+        throw("No address found.");
+      }
+      toAddress = to;
     }
     try {
-      to = bsv.Script.buildPublicKeyHashOut(to);
+      toAddress = bsv.Script.buildPublicKeyHashOut(toAddress);
     } catch(e){
       throw("Invalid address");
     }
-    console.log("Automatically publish when mined? Y/N");
-    let {publish} = await prompt.get(["publish"]);
-    publish = (publish.toLowerCase()[0] == 'y') ? true : false;
     console.log(chalk.green(`Mining TX ${txid} output ${index}`));
-    console.log(chalk.green(`Pay to: ${to}`));
-    mineId(tx, index, to, publish);
+    console.log(chalk.green(`Pay to: ${toAddress}`));
+    mineId(tx, index, toAddress, config.autopublish);
   } catch(e){
     console.log(chalk.red(e));
     start();
@@ -110,7 +121,15 @@ const mineId = async(from, index, to, publish) => {
     const vout = from.vout[index];
     const value = Math.floor(vout.value*1e8);
     const targetScript = bsv.Script.fromHex(vout.scriptPubKey.hex);
-    const target = targetScript.toASM().split(" ")[1].toString('hex');
+    let target = targetScript.toASM().split(" ")[1].toString('hex');
+    console.log(target);
+    // if(parseInt('0x'+target)<=75){
+    //   target = parseInt('0x'+target);
+    // }
+    // if(parseInt("0x"+target)<=75){
+    //   target = parseInt(target);
+    //   console.log(target);
+    // };
 
     //Make initial TX
     let tx = new Transaction();
@@ -128,10 +147,25 @@ const mineId = async(from, index, to, publish) => {
 
     tx.addOutput(
       new Transaction.Output({
-        satoshis: value-218,
+        satoshis: (config.minerId.enabled) ? value-300 : value-218,
         script: to
       })
     );
+
+    if(config.minerId.enabled){
+      const minerPriv = new PrivateKey.fromWIF(config.minerId.privKey);
+      const minerPub = new bsv.PublicKey.fromPrivateKey(minerPriv);
+      const sig = bsv.crypto.ECDSA.sign(Buffer.from(from.txid, 'hex'), minerPriv);
+      const schema = {
+        id: minerPub.toString('hex'),
+        sig: sig.toString('hex'),
+        message: config.minerId.message
+      };
+      tx.addOutput(new Transaction.Output({
+        script: bsv.Script.buildSafeDataOut(JSON.stringify(schema)),
+        satoshis: 0
+      }));
+    }
 
     console.log(chalk.green(`Targeting: ${target}`));
     let newTX;
