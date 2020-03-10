@@ -64,21 +64,23 @@ function sign(tx, target=''){
   return tx;
 }
 
+const getTx = async txid => {
+  try {
+    const result = await axios.get(`https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/hex`);
+    return new Transaction(result.data);
+  } catch (_) {
+    throw new Error("TX not found.");
+  }
+}
 
 const start = async() => {
   try {
     const {txid} = await prompt.get(["txid"]);
     if(txid === 'exit') return; //let them exit
-    let tx;
-    try {
-      const {data} = await axios.get(`https://api.whatsonchain.com/v1/bsv/main/tx/hash/${txid}`);
-      tx = data;
-    } catch(e) {
-      throw("TX not found.");
-    }
+    const tx = await getTx(txid);
     let index = -1;
-    for(let i=0; i<tx.vout.length; i++) {
-      if(is21e8Out(bsv.Script.fromHex(tx.vout[i].scriptPubKey.hex))){
+    for(let i=0; i<tx.outputs.length; i++) {
+      if(is21e8Out(tx.outputs[i].script)){
         index = i;
         break;
       }
@@ -119,10 +121,9 @@ const start = async() => {
 }
 
 const mineId = async(from, index, to, publish) => {
-    const vout = from.vout[index];
-    const value = Math.floor(vout.value*1e8);
-    const targetScript = bsv.Script.fromHex(vout.scriptPubKey.hex);
-    let target = targetScript.toASM().split(" ")[1].toString('hex');
+    const vout = from.outputs[index];
+    const value = vout.satoshis;
+    const target = vout.script.chunks[1].buf.toString("hex");
     console.log(target);
     // if(parseInt('0x'+target)<=75){
     //   target = parseInt('0x'+target);
@@ -137,10 +138,10 @@ const mineId = async(from, index, to, publish) => {
     tx.addInput(
       new Transaction.Input({
         output: new Transaction.Output({
-          script: targetScript,
+          script: vout.script,
           satoshis: value
         }),
-        prevTxId: from.txid,
+        prevTxId: from.hash,
         outputIndex: index,
         script: bsv.Script.empty()
       })
