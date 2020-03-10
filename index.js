@@ -93,7 +93,7 @@ const start = async() => {
       toAddress = config.payto;
     } else {
       let {to} = await prompt.get(["to"]);
-      if(txid === 'exit') return; //let them exit
+      if(to === 'exit') return; //let them exit
       if(!to.length){
         throw("No address found.");
       }
