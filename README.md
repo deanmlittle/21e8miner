@@ -1,6 +1,9 @@
 # 21e8miner
 Mine 21e8, or don't, whatever.
 
+### Setup Miner ID
+Run `node minerid` to configure your Miner ID and default payout settings
+
 ### Publish 21e8 jobs
 Use this TX template with a certain output
 

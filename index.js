@@ -1,16 +1,35 @@
 const axios = require('axios');
 const bsv = require('bsv');
 const chalk = require('chalk');
-const prompt = require('prompt-async');
+const prompts = require('prompts');
 const Message = require('bsv/message')
 const PrivateKey = bsv.PrivateKey;
 const Opcode = bsv.Opcode;
 const Transaction = bsv.Transaction;
 const BN = bsv.crypto.BN;
-const config = require('./config');
+const config = loadConfig();
 
 const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID;
 const flags = bsv.Script.Interpreter.SCRIPT_VERIFY_MINIMALDATA | bsv.Script.Interpreter.SCRIPT_ENABLE_SIGHASH_FORKID | bsv.Script.Interpreter.SCRIPT_ENABLE_MAGNETIC_OPCODES | bsv.Script.Interpreter.SCRIPT_ENABLE_MONOLITH_OPCODES;
+
+
+function loadConfig(){
+  let defaultConfig = {
+    minerId: {
+        enabled: false,
+        privKey: "",
+        message: ""
+    },
+    payto: "",
+    autopublish: true
+  }
+  try {
+    const userConfig = require('./config');
+    return userConfig;
+  } catch(e) {
+    return defaultConfig
+  }  
+}
 
 function is21e8Out(script) {
   return !!(
@@ -68,16 +87,25 @@ const getTx = async txid => {
   try {
     const result = await axios.get(`https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/hex`);
     return new Transaction(result.data);
-  } catch (_) {
+  } catch (e) {
     throw new Error("TX not found.");
   }
 }
 
 const start = async() => {
   try {
-    const {txid} = await prompt.get(["txid"]);
-    if(txid === 'exit') return; //let them exit
+    const {txid} = await prompts({
+      type: 'text',
+      name: 'txid',
+      message: 'Target TXID'
+    });
+    // const {txid} = await prompt.get(["txid"]);
+    // if(txid === 'exit') return; //let them exit
+    if(!txid) {
+      return;
+    }
     const tx = await getTx(txid);
+    
     let index = -1;
     for(let i=0; i<tx.outputs.length; i++) {
       if(is21e8Out(tx.outputs[i].script)){
@@ -92,8 +120,14 @@ const start = async() => {
     if(config.payto){
       toAddress = config.payto;
     } else {
-      let {to} = await prompt.get(["to"]);
-      if(to === 'exit') return; //let them exit
+      let {to} = await prompts({
+        type: 'text',
+        name: 'to',
+        message: 'Pay solved puzzle out to (1handle, $handle, PayMail or p2pkh address)'
+      });
+      if(!to){
+        return;
+      }
       if(!to.length){
         throw("No address found.");
       }
@@ -157,7 +191,7 @@ const mineId = async(from, index, to, publish) => {
     if(config.minerId.enabled){
       const minerPriv = new PrivateKey.fromWIF(config.minerId.privKey);
       const minerPub = new bsv.PublicKey.fromPrivateKey(minerPriv);
-      const sig = bsv.crypto.ECDSA.sign(Buffer.from(from.txid, 'hex'), minerPriv);
+      const sig = bsv.crypto.ECDSA.sign(Buffer.from(from.hash, 'hex'), minerPriv);
       const schema = {
         id: minerPub.toString('hex'),
         sig: sig.toString('hex'),
