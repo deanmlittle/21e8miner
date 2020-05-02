@@ -9,7 +9,9 @@ const Transaction = bsv.Transaction;
 const BN = bsv.crypto.BN;
 const config = loadConfig();
 
-const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID;
+const sigtype = bsv.crypto.Signature.SIGHASH_ALL | bsv.crypto.Signature.SIGHASH_FORKID
+const signSigType = Buffer.from(sigtype.toString(16), 'hex')
+
 const flags = bsv.Script.Interpreter.SCRIPT_VERIFY_MINIMALDATA | bsv.Script.Interpreter.SCRIPT_ENABLE_SIGHASH_FORKID | bsv.Script.Interpreter.SCRIPT_ENABLE_MAGNETIC_OPCODES | bsv.Script.Interpreter.SCRIPT_ENABLE_MONOLITH_OPCODES;
 
 
@@ -53,21 +55,15 @@ function is21e8Out(script) {
 
 function sign(tx, target=''){
   const privKey = PrivateKey.fromRandom();
-  if(!is21e8Out(tx.inputs[0].output.script)){
-    throw("Not a valid 21e8 script");
-  }
-  const signature = Transaction.sighash.sign(tx, privKey, sigtype, 0, tx.inputs[0].output.script, new bsv.crypto.BN(tx.inputs[0].output.satoshis), flags);
-  if(target!=''){
-    const sig256 = bsv.crypto.Hash.sha256(Buffer.concat([signature.toBuffer(), Buffer.from(sigtype.toString(16), 'hex')])).toString('hex');
-    if(!sig256.startsWith(target)){
-      process.stdout.clearLine();
-      process.stdout.cursorTo(0);
-      process.stdout.write(chalk.red(sig256));
-      return(false);
-    } else {
-      console.log();
-      console.log(chalk.green(sig256));
-    }
+  const signature = Transaction.sighash.sign(tx, privKey, sigtype, 0, tx.inputs[0].output.script, new bsv.crypto.BN(tx.inputs[0].output.satoshis), flags)
+  const sig256 = bsv.crypto.Hash.sha256(
+    Buffer.concat([
+      signature.toBuffer(),
+      signSigType
+    ])
+  ).toString('hex')
+  if (!sig256.startsWith(target)) {
+    return false
   }
   const unlockingScript = new bsv.Script({});
   unlockingScript
@@ -158,17 +154,11 @@ const mineId = async(from, index, to, publish) => {
     const vout = from.outputs[index];
     const value = vout.satoshis;
     const target = vout.script.chunks[1].buf.toString("hex");
-    console.log(target);
-    // if(parseInt('0x'+target)<=75){
-    //   target = parseInt('0x'+target);
-    // }
-    // if(parseInt("0x"+target)<=75){
-    //   target = parseInt(target);
-    //   console.log(target);
-    // };
 
+    console.log('script', vout.script.toASM())
+  
     //Make initial TX
-    let tx = new Transaction();
+    let tx = new Transaction()
     tx.addInput(
       new Transaction.Input({
         output: new Transaction.Output({
